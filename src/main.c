@@ -11,11 +11,12 @@
 
 #define TCNTInit 100
 
-#define T_MAX 700
-#define T_MIN 200
-#define ADC_MAX 1024
-#define ADC_CH_BRUT 1
-#define ADC_CH_FIN 2
+#define T_MAX        700
+#define T_MIN        200
+#define T_RANGE      (T_MAX-T_MIN)
+#define ADC_MAX      1024
+#define ADC_CH_BRUT  1
+#define ADC_CH_FIN   2
 
 int temperaturaCurenta = 0;
 int temperaturaSetata = 0;
@@ -23,6 +24,8 @@ int temperaturaSetata = 0;
 
 #define CNT_1_PERIOD 100	
 #define CNT_2_PERIOD 5000
+
+#define SW_PIN 3
 
 
 void SysTick_Handler(void);
@@ -46,14 +49,14 @@ ISR(TIMER0_OVF_vect)
 	DisplayDrv();	
 
 
-//	control
+//	control 100 ms
 
 		//.....
 
 	
 }
 
-uint32_t TimingDelay;
+volatile uint32_t TimingDelay;
 
 void Delay(uint32_t nTime){
 	TimingDelay = nTime;
@@ -68,7 +71,7 @@ void SysTick_Handler(void) {
 
 int err[10];
 
-
+#define IsControlMode() ((PIND & 1 << SW_PIN)!=0)
 
 int main(void)
 {
@@ -84,10 +87,14 @@ int main(void)
 	DDRB  = 0xff;
 	PORTC = 0xFF &(~ (1<<PC1)|(1<<PC2));
  	DDRC  = 0x00;
+ 	PORTD = 0xFF;
+ 	DDRD = 0x00;
 
 	DisplayInitSTD();
 	T0Init();
 	ADC_init();
+	
+	printf("000");
 	
 	DisplayBlink(1000);
 
@@ -101,48 +108,55 @@ int main(void)
 	DisplayBlinkOff();
 	wdt_enable(100);
 
-	while(1)
-    {
-	
+	while (1) {
+
 		wdt_reset();
 
 		Delay(1);
-		// extract temperature sensor value
-		//-------------------------------------
-		if(++cnt_get_i2c > CNT_1_PERIOD){
-			cnt_get_i2c = 0;
-			err[0] = 2;
-			temperaturaCurenta = Geti2cSensorData();
-			err[0] = 0;
+
+		if (IsControlMode()) {
+
+			// extract temperature sensor value
+			//-------------------------------------
+			if (++cnt_get_i2c > CNT_1_PERIOD) {
+				cnt_get_i2c = 0;
+				err[0] = 2;
+				temperaturaCurenta = Geti2cSensorData();
+				err[0] = 0;
+				GoToX(0);
+				printf("%d", temperaturaCurenta);
+			}
+
+		} else {
+			// extract ADC data value
+			//-------------------------------------
+			if (++cnt_get_adc > CNT_1_PERIOD) {
+				cnt_get_adc = 0;
+
+				int adcValBrut = GetADC(ADC_CH_BRUT);
+				int adcValFin = GetADC(ADC_CH_FIN);
+
+				// de adaugat filtre ??
+
+
+				long setValue = adcValBrut + adcValFin / 10;
+
+				long tempValue = (setValue * T_RANGE)/ ADC_MAX;
+
+				temperaturaSetata = tempValue + T_MIN;
+
+				GoToX(0);
+				printf("%3d", temperaturaSetata);
+			}
 		}
-		
-		// extract ADC data value
-		//-------------------------------------
-		if(++cnt_get_adc > CNT_1_PERIOD){
-			cnt_get_adc = 0;
-			
-			int adcValBrut =  GetADC(ADC_CH_BRUT);
-			int adcValFin  =  GetADC(ADC_CH_FIN);
-			
-			// de adaugat filtre
-
-			int setValue = adcValBrut + adcValFin/10;
-			temperaturaSetata = (((ADC_MAX + (ADC_MAX/10)) * setValue) / (T_MAX - T_MIN)) + T_MIN;
-		}
-	
-
-		if(++cnt_switch > CNT_2_PERIOD)
-			cnt_switch = 0;
 
 
-		{
-			GoToX(0);
-			if(cnt_switch > CNT_2_PERIOD/2)
-				printf("%d",temperaturaCurenta);
-			else
-				printf("%d",temperaturaSetata);
-	
-		}
+
+
+
+
+
+
 	}
 	
 	
